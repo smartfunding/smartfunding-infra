@@ -1,0 +1,66 @@
+# CALL_GRAPH.yaml — Source unique de vérité du graphe d'appels HTTP synchrones inter-services.
+#
+# Résout la dette technique notée dans docs/adr/0002 (cloisonnement namespace-only) sans ajouter
+# de service mesh (mTLS/Istio/Linkerd) — cohérent avec la sobriété du projet (aucun sidecar,
+# aucune surcharge runtime, uniquement des ressources NetworkPolicy natives k3s).
+#
+# Ce fichier est la RÉFÉRENCE : scripts/generate-networkpolicies.py l'utilise pour produire les
+# k3s/base/networkpolicy.yaml exacts de chaque service. Toute évolution du graphe d'appels réel
+# DOIT être répercutée ICI D'ABORD, puis regénérée — jamais éditer un networkpolicy.yaml à la main.
+#
+# Ne couvre QUE les appels HTTP synchrones directs (pas la consommation d'événements RabbitMQ,
+# qui ne nécessite aucune règle d'ingress puisque le consommateur initie la connexion sortante
+# vers RabbitMQ, jamais l'inverse).
+#
+# Format : <service> : liste des services qui ont le droit d'appeler <service> directement.
+# "gateway" est systématiquement ajouté à chaque service exposant une route publique (routage
+# Nord-Sud) ; les autres entrées sont des appels Est-Ouest service-à-service documentés dans les
+# TASKS.md respectifs (référence donnée en commentaire).
+
+services:
+  auth:
+    allowed_callers: [gateway, projects, documents, funders, workflow, notifications, billing, onboarding, ai]
+    # Référence : smartfunding-auth.md §4.2 "consommé par les 7 autres microservices et le Gateway"
+
+  notifications:
+    allowed_callers: [gateway, auth, workflow]
+    # gateway   : routage Nord-Sud standard (déclenchement de notifications depuis le Web)
+    # auth      : smartfunding-auth.md §3.5.3 (2FA email, POST /notifications/send-transactional)
+    # workflow  : smartfunding-workflow.md §6bis.4 (alertes d'échéances de reporting, ReportingDeadlineApproaching)
+
+  projects:
+    allowed_callers: [gateway, onboarding, billing]
+    # onboarding : smartfunding-onboarding.md §4.2 (création du projet brouillon post-questionnaire)
+    # billing    : vérification croisée de quota au moment de la création (lecture, pas d'écriture)
+
+  documents:
+    allowed_callers: [gateway, projects]
+    # projects : smartfunding-projects.md §3.1.3 (création de la structure documentaire à la création d'un projet)
+
+  funders:
+    allowed_callers: [gateway, onboarding, workflow, ai]
+    # onboarding : smartfunding-onboarding.md §4.1 (suggestions de financeurs post-questionnaire)
+    # workflow   : smartfunding-workflow.md §6bis.5 (capitalisation, alimente historique_succès / BR-001)
+    # ai         : recommandations personnalisées (smartfunding-ai.md §4.2, s'appuie sur le scoring Funders)
+
+  workflow:
+    allowed_callers: [gateway]
+
+  billing:
+    allowed_callers: [gateway, projects, funders, ai]
+    # GET /billing/quota-status appelé par chaque service consommant un quota (smartfunding-billing.md §3.6)
+
+  onboarding:
+    allowed_callers: [gateway]
+
+  ai:
+    allowed_callers: [gateway, documents]
+    # documents : smartfunding-documents.md §3.2.2 (fallback OCR complexe vers le Service AI)
+
+  gateway:
+    allowed_callers: []
+    # Aucun appelant interne : SEUL point d'entrée depuis l'extérieur du cluster (Ingress Traefik public)
+
+  web:
+    allowed_callers: []
+    # Aucun appelant interne : exposé via Ingress Traefik public (navigateur du client)

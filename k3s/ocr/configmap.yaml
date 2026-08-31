@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ocr-config
+  namespace: smartfunding
+data:
+  MINIO_ENDPOINT: "minio"
+  MINIO_PORT: "9000"
+  MINIO_BUCKET: "smartfunding-documents"
+  MINIO_USE_SSL: "false"
+  LOG_LEVEL: "INFO"

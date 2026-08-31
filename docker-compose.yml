@@ -1,0 +1,139 @@
+version: "3.9"
+
+services:
+  # ---------- Frontend & Gateway ----------
+  web:
+    build: ../smartfunding-web
+    ports: ["3000:3000"]
+    env_file: ../smartfunding-web/.env
+    depends_on: [gateway]
+
+  gateway:
+    build: ../smartfunding-gateway
+    ports: ["4000:4000"]
+    env_file: ../smartfunding-gateway/.env
+    depends_on: [auth, projects, documents, funders, ai, workflow, notifications, billing]
+
+  # ---------- Microservices métier ----------
+  auth:
+    build: ../smartfunding-auth
+    ports: ["3001:3001"]
+    env_file: ../smartfunding-auth/.env
+    depends_on: [postgres, redis]
+
+  projects:
+    build: ../smartfunding-projects
+    ports: ["3002:3002"]
+    env_file: ../smartfunding-projects/.env
+    depends_on: [postgres, redis, rabbitmq]
+
+  documents:
+    build: ../smartfunding-documents
+    ports: ["3003:3003"]
+    env_file: ../smartfunding-documents/.env
+    depends_on: [mongodb, minio, redis, rabbitmq]
+
+  funders:
+    build: ../smartfunding-funders
+    ports: ["3004:3004"]
+    env_file: ../smartfunding-funders/.env
+    depends_on: [postgres, redis]
+
+  ai:
+    build: ../smartfunding-ai
+    ports: ["3005:3005"]
+    env_file: ../smartfunding-ai/.env
+
+  workflow:
+    build: ../smartfunding-workflow
+    ports: ["3006:3006"]
+    env_file: ../smartfunding-workflow/.env
+    depends_on: [postgres, temporal, rabbitmq]
+
+  notifications:
+    build: ../smartfunding-notifications
+    ports: ["3007:3007"]
+    env_file: ../smartfunding-notifications/.env
+    depends_on: [rabbitmq, redis]
+
+  billing:
+    build: ../smartfunding-billing
+    ports: ["3008:3008"]
+    env_file: ../smartfunding-billing/.env
+    depends_on: [postgres]
+
+  ocr:
+    build: ../smartfunding-ocr
+    ports: ["3006:3006"]
+    environment:
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: smartfunding-documents
+    depends_on: [minio]
+
+  # ---------- Bases de données & stockage ----------
+  postgres:
+    image: postgres:16-alpine
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_PASSWORD: smartfunding
+      POSTGRES_MULTIPLE_DATABASES: auth,projects,funders,workflow,billing,onboarding
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+
+  mongodb:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: ["mongo_data:/data/db"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports: ["9000:9000", "9001:9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes: ["minio_data:/data"]
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports: ["5672:5672", "15672:15672"]
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    ports: ["7233:7233"]
+    environment:
+      DB: postgres12_pgx
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: smartfunding
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    depends_on: [postgres]
+
+  # ---------- Observabilité ----------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    environment: { discovery.type: single-node, xpack.security.enabled: "false" }
+    ports: ["9200:9200"]
+
+  prometheus:
+    image: prom/prometheus
+    ports: ["9090:9090"]
+    volumes: ["./docker/prometheus.yml:/etc/prometheus/prometheus.yml"]
+
+  grafana:
+    image: grafana/grafana
+    ports: ["3030:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  postgres_data:
+  mongo_data:
+  minio_data:

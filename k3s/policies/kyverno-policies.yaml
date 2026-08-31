@@ -1,0 +1,85 @@
+# Policies Kyverno à déployer une fois par cluster (depuis smartfunding-infra)
+# Namespace cible : smartfunding-prod (mode "audit" recommandé d'abord en dev/staging avant "enforce")
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-signed-images
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: verify-cosign-signature
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["smartfunding-*"]
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/smartfunding-manager/*"
+          attestors:
+            - entries:
+                - keyless:
+                    subject: "https://github.com/smartfunding-manager/*"
+                    issuer: "https://token.actions.githubusercontent.com"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-run-as-non-root
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-runasnonroot
+      match:
+        any:
+          - resources: { kinds: [Pod], namespaces: ["smartfunding-*"] }
+      validate:
+        message: "Les conteneurs doivent s'exécuter en non-root (runAsNonRoot: true)."
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privileged-containers
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: privileged-containers
+      match:
+        any:
+          - resources: { kinds: [Pod], namespaces: ["smartfunding-*"] }
+      validate:
+        message: "Les conteneurs privilégiés sont interdits."
+        pattern:
+          spec:
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-resources
+      match:
+        any:
+          - resources: { kinds: [Pod], namespaces: ["smartfunding-*"] }
+      validate:
+        message: "Chaque conteneur doit déclarer resources.requests et resources.limits (cf. §Durabilité de chaque service)."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    memory: "?*"
+                    cpu: "?*"
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"

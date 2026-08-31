@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: 'smartfunding-services'
+    static_configs:
+      - targets:
+          - gateway:4000
+          - auth:3001
+          - projects:3002
+          - documents:3003
+          - funders:3004
+          - ai:3005
+          - workflow:3006
+          - notifications:3007
+          - billing:3008

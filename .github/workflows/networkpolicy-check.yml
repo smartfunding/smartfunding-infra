@@ -1,0 +1,33 @@
+# Vérifie qu'aucun k3s/base/networkpolicy.yaml (des 11 dépôts) n'a dérivé de CALL_GRAPH.yaml
+# (cf. docs/adr/0003-networkpolicy-service-a-service.md). Nécessite de checkout les dépôts
+# frères — remplacer <ORG> par l'organisation GitHub réelle du projet.
+name: NetworkPolicy Drift Check
+
+on:
+  pull_request:
+    paths:
+      - 'CALL_GRAPH.yaml'
+      - 'scripts/generate-networkpolicies.py'
+  schedule:
+    - cron: '0 6 * * 1' # hebdomadaire, détecte une édition manuelle oubliée dans un autre dépôt
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout smartfunding-infra
+        uses: actions/checkout@v4
+        with: { path: smartfunding-infra }
+
+      - name: Checkout des 10 autres dépôts (frères)
+        run: |
+          for repo in auth projects documents funders workflow notifications billing gateway ai web onboarding; do
+            git clone --depth 1 https://github.com/<ORG>/smartfunding-${repo}.git smartfunding-${repo}
+          done
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install --break-system-packages pyyaml
+
+      - name: Vérifier la synchronisation (--check, exit 1 si dérive)
+        run: python3 smartfunding-infra/scripts/generate-networkpolicies.py --check

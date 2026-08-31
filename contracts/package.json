@@ -1,0 +1,13 @@
+{
+  "name": "@smartfunding/common-dto",
+  "version": "0.1.0",
+  "description": "Types partagés entre tous les services SmartFunding Manager — SOURCE UNIQUE DE VÉRITÉ, ne pas redéfinir ces types localement dans un service.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "5.4"
+  }
+}

@@ -1,0 +1,43 @@
+# Template — .github/workflows/iac-scan.yml
+# Déclenché sur toute PR modifiant le dossier k3s/ ou docker/
+name: IaC Security Scan
+
+on:
+  pull_request:
+    paths:
+      - 'k3s/**'
+      - 'docker/**'
+      - 'Dockerfile'
+
+jobs:
+  kube-score:
+    name: Analyse des manifestes Kubernetes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: kube-score
+        run: |
+          curl -sL https://github.com/zegl/kube-score/releases/latest/download/kube-score_linux_amd64 -o kube-score
+          chmod +x kube-score
+          ./kube-score score k3s/base/*.yaml
+
+  checkov:
+    name: Checkov (Dockerfile + manifestes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,kubernetes
+          soft_fail: false
+
+  kyverno-cli-test:
+    name: Validation locale des policies Kyverno
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer kyverno CLI
+        run: curl -sL https://github.com/kyverno/kyverno/releases/latest/download/kyverno-cli_linux_x86_64.tar.gz | tar xz
+      - name: Tester les manifestes contre les policies du cluster
+        run: ./kyverno apply ../smartfunding-infra/k3s/policies/*.yaml --resource k3s/base/deployment.yaml
