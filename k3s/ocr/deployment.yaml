@@ -2,29 +2,35 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ocr
-  namespace: smartfunding
+  namespace: smartfunding-dev
   labels:
-    app: ocr
+    app.kubernetes.io/name: smartfunding-ocr
+    app.kubernetes.io/component: ocr
+    app.kubernetes.io/part-of: smartfunding-manager
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ocr
+      app.kubernetes.io/name: smartfunding-ocr
   template:
     metadata:
       labels:
-        app: ocr
+        app.kubernetes.io/name: smartfunding-ocr
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: ocr
-          image: smartfunding-ocr:latest
+          image: ghcr.io/smartfunding-manager/smartfunding-ocr:latest
           ports:
-            - containerPort: 3006
+            - containerPort: 3010
           envFrom:
             - configMapRef:
                 name: ocr-config
             - secretRef:
                 name: ocr-secrets
+                optional: true
           resources:
             requests:
               cpu: 250m
@@ -35,12 +41,12 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 3006
+              port: 3010
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /ready
-              port: 3006
+              port: 3010
             initialDelaySeconds: 15
             periodSeconds: 10

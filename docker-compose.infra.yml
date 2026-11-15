@@ -1,0 +1,150 @@
+# docker-compose.infra.yml — Infra seule, 100% fonctionnelle SANS les dépôts frères.
+# C'est le point d'entrée recommandé sur Windows :
+#   docker compose -f docker-compose.infra.yml up -d
+# Contient uniquement des images publiques (aucun build local).
+# Le docker-compose.yml complet (+ --profile app) sert quand les 13 dépôts sont présents.
+
+name: smartfunding-infra
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: smartfunding
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: ["mongo_data:/data/db"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 20s
+      timeout: 15s
+      retries: 8
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis_data:/data"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports: ["9000:9000", "9001:9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes: ["minio_data:/data"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports: ["5672:5672", "15672:15672"]
+    environment:
+      RABBITMQ_DEFAULT_USER: smartfunding
+      RABBITMQ_DEFAULT_PASS: smartfunding
+    volumes: ["rabbitmq_data:/var/lib/rabbitmq"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  temporal:
+    image: temporalio/auto-setup:1.24
+    ports: ["7233:7233"]
+    environment:
+      DB: postgres12_pgx
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: smartfunding
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports: ["9200:9200"]
+    volumes: ["es_data:/usr/share/elasticsearch/data"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    ports: ["9090:9090"]
+    volumes: ["./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    networks: [smartfunding]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports: ["3030:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes: ["grafana_data:/var/lib/grafana"]
+    depends_on: [prometheus]
+    networks: [smartfunding]
+    restart: unless-stopped
+
+networks:
+  smartfunding:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+  minio_data:
+  rabbitmq_data:
+  es_data:
+  grafana_data:

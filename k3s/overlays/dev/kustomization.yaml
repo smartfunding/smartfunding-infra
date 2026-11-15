@@ -1,0 +1,13 @@
+# Exemple de référence : l'OCR est un exemple transverse porté par l'infra.
+# Les 11 services métier suivent exactement la même structure
+# (k3s/base/{deployment,service,networkpolicy}.yaml + overlays/).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: smartfunding-dev
+resources:
+  - ../ocr/deployment.yaml
+  - ../ocr/service.yaml
+  - ../ocr/configmap.yaml
+  - ../base/default-deny.yaml
+commonLabels:
+  app.kubernetes.io/part-of: smartfunding-manager

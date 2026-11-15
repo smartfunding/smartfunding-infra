@@ -1,0 +1,19 @@
+# k3s/base/default-deny.yaml — Cloisonnement de base (ADR-0002).
+# Tout trafic inter-pods est refusé par défaut dans chaque namespace ;
+# chaque service ouvre ensuite son ingress via son networkpolicy.yaml généré
+# depuis CALL_GRAPH.yaml (ADR-0003). DNS (53/UDP+TCP) toujours autorisé.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { name: kube-system } }
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

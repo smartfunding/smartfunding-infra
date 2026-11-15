@@ -1,0 +1,33 @@
+# docker-compose.dev.yml — Override développement (itération rapide).
+# Usage :
+#   docker compose -f docker-compose.infra.yml -f docker-compose.dev.yml up -d
+# Effets : logs verbeux, ports identiques, pas de restart agressif,
+# Elasticsearch allégé pour petites machines.
+services:
+  postgres:
+    ports: ["5432:5432"]
+    restart: "no"
+
+  redis:
+    command: ["redis-server", "--appendonly", "no", "--save", '""']
+    restart: "no"
+
+  elasticsearch:
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    mem_limit: 768m
+    restart: "no"
+
+  temporal:
+    restart: "no"
+
+  prometheus:
+    restart: "no"
+
+  grafana:
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    restart: "no"

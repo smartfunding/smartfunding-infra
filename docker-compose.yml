@@ -1,95 +1,204 @@
-version: "3.9"
+# docker-compose.yml — Plateforme complète SmartFunding Manager
+# Usage Windows / Linux :
+#   Infra seule (fonctionne SANS les dépôts frères) :
+#     docker compose -f docker-compose.infra.yml up -d
+#   Plateforme complète (requiert les dépôts frères ../smartfunding-*) :
+#     docker compose --profile app up -d --build
+# Les services applicatifs sont derrière le profil "app" pour ne pas casser
+# le démarrage infra quand les dépôts frères sont absents.
+
+name: smartfunding
 
 services:
-  # ---------- Frontend & Gateway ----------
+  # ---------- Frontend & Gateway (profil app) ----------
   web:
     build: ../smartfunding-web
+    profiles: ["app"]
     ports: ["3000:3000"]
-    env_file: ../smartfunding-web/.env
+    env_file:
+      - path: ../smartfunding-web/.env
+        required: false
     depends_on: [gateway]
+    networks: [smartfunding]
+    restart: unless-stopped
 
   gateway:
     build: ../smartfunding-gateway
+    profiles: ["app"]
     ports: ["4000:4000"]
-    env_file: ../smartfunding-gateway/.env
+    env_file:
+      - path: ../smartfunding-gateway/.env
+        required: false
     depends_on: [auth, projects, documents, funders, ai, workflow, notifications, billing]
+    networks: [smartfunding]
+    restart: unless-stopped
 
-  # ---------- Microservices métier ----------
+  # ---------- Microservices métier (profil app) ----------
   auth:
     build: ../smartfunding-auth
+    profiles: ["app"]
     ports: ["3001:3001"]
-    env_file: ../smartfunding-auth/.env
-    depends_on: [postgres, redis]
+    env_file:
+      - path: ../smartfunding-auth/.env
+        required: false
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   projects:
     build: ../smartfunding-projects
+    profiles: ["app"]
     ports: ["3002:3002"]
-    env_file: ../smartfunding-projects/.env
-    depends_on: [postgres, redis, rabbitmq]
+    env_file:
+      - path: ../smartfunding-projects/.env
+        required: false
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   documents:
     build: ../smartfunding-documents
+    profiles: ["app"]
     ports: ["3003:3003"]
-    env_file: ../smartfunding-documents/.env
-    depends_on: [mongodb, minio, redis, rabbitmq]
+    env_file:
+      - path: ../smartfunding-documents/.env
+        required: false
+    depends_on:
+      mongodb: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   funders:
     build: ../smartfunding-funders
+    profiles: ["app"]
     ports: ["3004:3004"]
-    env_file: ../smartfunding-funders/.env
-    depends_on: [postgres, redis]
+    env_file:
+      - path: ../smartfunding-funders/.env
+        required: false
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   ai:
     build: ../smartfunding-ai
+    profiles: ["app"]
     ports: ["3005:3005"]
-    env_file: ../smartfunding-ai/.env
+    env_file:
+      - path: ../smartfunding-ai/.env
+        required: false
+    networks: [smartfunding]
+    restart: unless-stopped
 
   workflow:
     build: ../smartfunding-workflow
+    profiles: ["app"]
     ports: ["3006:3006"]
-    env_file: ../smartfunding-workflow/.env
-    depends_on: [postgres, temporal, rabbitmq]
+    env_file:
+      - path: ../smartfunding-workflow/.env
+        required: false
+    depends_on:
+      postgres: { condition: service_healthy }
+      temporal: { condition: service_started }
+      rabbitmq: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   notifications:
     build: ../smartfunding-notifications
+    profiles: ["app"]
     ports: ["3007:3007"]
-    env_file: ../smartfunding-notifications/.env
-    depends_on: [rabbitmq, redis]
+    env_file:
+      - path: ../smartfunding-notifications/.env
+        required: false
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   billing:
     build: ../smartfunding-billing
+    profiles: ["app"]
     ports: ["3008:3008"]
-    env_file: ../smartfunding-billing/.env
-    depends_on: [postgres]
+    env_file:
+      - path: ../smartfunding-billing/.env
+        required: false
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   ocr:
     build: ../smartfunding-ocr
-    ports: ["3006:3006"]
+    profiles: ["app"]
+    # NOTE: port corrigé 3010 (était 3006 en conflit avec workflow)
+    ports: ["3010:3010"]
     environment:
+      PORT: "3010"
       MINIO_ENDPOINT: minio
       MINIO_PORT: "9000"
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: smartfunding-documents
-    depends_on: [minio]
+    depends_on:
+      minio: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   # ---------- Bases de données & stockage ----------
   postgres:
     image: postgres:16-alpine
     ports: ["5432:5432"]
     environment:
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: smartfunding
-      POSTGRES_MULTIPLE_DATABASES: auth,projects,funders,workflow,billing,onboarding
-    volumes: ["postgres_data:/var/lib/postgresql/data"]
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mongodb:
     image: mongo:7
     ports: ["27017:27017"]
     volumes: ["mongo_data:/data/db"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 20s
+      timeout: 15s
+      retries: 8
+      start_period: 60s
 
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis_data:/data"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   minio:
     image: minio/minio
@@ -99,13 +208,33 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes: ["minio_data:/data"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
     ports: ["5672:5672", "15672:15672"]
+    environment:
+      RABBITMQ_DEFAULT_USER: smartfunding
+      RABBITMQ_DEFAULT_PASS: smartfunding
+    volumes: ["rabbitmq_data:/var/lib/rabbitmq"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   temporal:
-    image: temporalio/auto-setup:latest
+    image: temporalio/auto-setup:1.24
     ports: ["7233:7233"]
     environment:
       DB: postgres12_pgx
@@ -115,25 +244,57 @@ services:
       POSTGRES_PWD: smartfunding
       DBNAME: temporal
       VISIBILITY_DBNAME: temporal_visibility
-    depends_on: [postgres]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [smartfunding]
+    restart: unless-stopped
 
   # ---------- Observabilité ----------
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
-    environment: { discovery.type: single-node, xpack.security.enabled: "false" }
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
     ports: ["9200:9200"]
+    volumes: ["es_data:/usr/share/elasticsearch/data"]
+    networks: [smartfunding]
+    restart: unless-stopped
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:v2.52.0
     ports: ["9090:9090"]
-    volumes: ["./docker/prometheus.yml:/etc/prometheus/prometheus.yml"]
+    volumes: ["./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    networks: [smartfunding]
+    restart: unless-stopped
 
   grafana:
-    image: grafana/grafana
+    image: grafana/grafana:10.4.0
     ports: ["3030:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes: ["grafana_data:/var/lib/grafana"]
     depends_on: [prometheus]
+    networks: [smartfunding]
+    restart: unless-stopped
+
+networks:
+  smartfunding:
+    driver: bridge
 
 volumes:
   postgres_data:
   mongo_data:
+  redis_data:
   minio_data:
+  rabbitmq_data:
+  es_data:
+  grafana_data:

@@ -1,0 +1,59 @@
+# Template DevSecOps — .github/workflows/cd.yml
+# À copier dans chacun des 13 dépôts (cf. TASKS.md §P7.1).
+# Pipeline : build image -> Trivy image -> Cosign (signature keyless) -> push GHCR -> staging (k3s)
+name: CD (release -> staging)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # requis pour Cosign keyless (OIDC)
+
+jobs:
+  build-scan-sign-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/smartfunding-manager/${{ github.event.repository.name }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=docker,dest=/tmp/image.tar
+      - uses: aquasecurity/trivy-action@master
+        with:
+          input: /tmp/image.tar
+          severity: CRITICAL,HIGH
+          exit-code: '1' # bloque le déploiement si CRITICAL/HIGH sans correctif
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+      - uses: sigstore/cosign-installer@v3
+      - run: cosign sign --yes ${{ steps.meta.outputs.tags }}
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [build-scan-sign-push]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to k3s staging
+        run: |
+          echo "${{ secrets.KUBECONFIG_STAGING }}" > kubeconfig
+          export KUBECONFIG=$PWD/kubeconfig
+          kubectl -n smartfunding-staging set image deployment/* *=ghcr.io/smartfunding-manager/${{ github.event.repository.name }}:${{ github.sha }} || \
+          kubectl apply -k k3s/overlays/staging
+          kubectl -n smartfunding-staging rollout status deployment --timeout=180s

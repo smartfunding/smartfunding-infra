@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: smartfunding-prod
+resources:
+  - ../ocr/deployment.yaml
+  - ../ocr/service.yaml
+  - ../ocr/configmap.yaml
+  - ../base/default-deny.yaml
+commonLabels:
+  app.kubernetes.io/part-of: smartfunding-manager
+patches:
+  - patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: smartfunding-prod
+    target:
+      kind: Deployment
+      name: ocr
